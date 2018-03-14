@@ -22,10 +22,18 @@ namespace POP3
             {
                 socket.Connect(remoteEP);
                 Console.WriteLine("Socket connected to {0}", socket.RemoteEndPoint.ToString());
+
+                byte[] bytes = new byte[512];
+                int x = socket.Receive(bytes);
+                Console.WriteLine(Encoding.ASCII.GetString(bytes, 0, x));
             }
             catch (Exception e)
             {
                 Console.WriteLine(e.StackTrace);
+            }finally
+            {
+                socket.Shutdown(SocketShutdown.Both);
+                socket.Close();
             }
 
             Console.ReadKey();
