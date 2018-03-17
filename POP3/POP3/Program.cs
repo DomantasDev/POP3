@@ -33,6 +33,18 @@ namespace POP3
 
                 socket.Send(Encoding.ASCII.GetBytes("Pass " + pass + "\r\n"));
                 PrintReceivedBytes(socket);
+
+                socket.Send(Encoding.ASCII.GetBytes("Stat\r\n"));
+                PrintReceivedBytes(socket);
+
+                socket.Send(Encoding.ASCII.GetBytes("List\r\n"));
+                PrintReceivedBytes(socket);
+
+                socket.Send(Encoding.ASCII.GetBytes("Retr 270\r\n"));
+                PrintReceivedBytes(socket);
+
+                socket.Send(Encoding.ASCII.GetBytes("Top 270 0\r\n"));
+                PrintReceivedBytes(socket);
             }
             catch (Exception e)
             {
@@ -52,8 +64,11 @@ namespace POP3
         private static void PrintReceivedBytes(Socket socket)
         {
             byte[] bytes = new byte[512];
-            int buffSize = socket.Receive(bytes);
-            Console.Write(Encoding.ASCII.GetString(bytes, 0, buffSize));
+            int buffSize;          
+            do {
+                buffSize = socket.Receive(bytes);
+                Console.Write(Encoding.ASCII.GetString(bytes, 0, buffSize));
+            } while (buffSize == 512);
         }
     }
 }
