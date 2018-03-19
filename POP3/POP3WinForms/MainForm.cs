@@ -17,31 +17,39 @@ namespace POP3WinForms
     {
         private Socket socket;
         private List<Email> emailList;
-
+        private int currentPage = 1;
+        private int emailCount;
         public MainForm()
         {
+            emailList = new List<Email>();
             InitializeComponent();
             this.emailView.SelectionChanged += EmailView_SelectionChanged;
         }
 
         private void EmailView_SelectionChanged(object sender, EventArgs e)
         {
-            int x = emailView.SelectedRows[0].Index;
-            emailText.Text = emailList[emailView.SelectedRows[0].Index].Text;
-        }
-
-        private void LogInPanel_Paint(object sender, PaintEventArgs e)
-        {
-
+            if (emailView.SelectedRows.Count > 0)
+            {
+                int index = emailView.SelectedRows[0].Index;
+                if (emailList[index].Text == null)
+                {
+                    socket.Send(Encoding.UTF8.GetBytes("RETR " + emailList[index].Nr + "\r\n"));
+                    string s = GetMultiLineResponse(socket);
+                    s = s.Substring(s.IndexOf(@"text/"));
+                    emailList[index].Text = s.Substring(s.IndexOf("\r\n\r\n"));
+                }
+                emailText.Text = emailList[index].Text;
+            }
         }
 
         private void logInButton_Click(object sender, EventArgs e)
         {
-            if ((socket = LogIn("s1610650", passTextBox.Text)) != null)
+            if ((socket = LogIn(userTextBox.Text, passTextBox.Text)) != null)
             {
                 logInPanel.Visible = false;
                 EmailPanel.Visible = true;
-                emailList = GetEmailList(socket);
+                GetEmailCount(socket, out emailCount);
+                GetEmailList(socket, emailList);
                 SetEmailTable(emailList);
             }
         }
@@ -63,7 +71,7 @@ namespace POP3WinForms
                 if (s.StartsWith("-ERR"))
                 {
                     socket.Send(Encoding.UTF8.GetBytes("QUIT\r\n"));
-                    //socket.Receive(bytes);
+                    GetResponse(socket);
                     return null;
                 }
 
@@ -72,7 +80,7 @@ namespace POP3WinForms
                 if (s.StartsWith("-ERR"))
                 {
                     socket.Send(Encoding.UTF8.GetBytes("QUIT\r\n"));
-                    //socket.Receive(bytes);
+                    GetResponse(socket);
                     return null;
                 }
             }
@@ -86,37 +94,49 @@ namespace POP3WinForms
 
         }
 
-        private List<Email> GetEmailList(Socket socket)
+        private Boolean GetEmailCount(Socket socket, out int emailCount)
+        {
+            socket.Send(Encoding.UTF8.GetBytes("STAT\r\n"));
+            string response = GetResponse(socket);
+            if (response.StartsWith("-ERR"))
+            {
+                emailCount = 0;
+                return false;
+            }
+            emailCount = int.Parse(Regex.Match(response, @"\d+").Value);
+            return true;
+        }
+
+        private void GetEmailList(Socket socket, List<Email> list)
         {
             try
             {
-                socket.Send(Encoding.UTF8.GetBytes("STAT\r\n"));
-                string response = GetResponse(socket);
-                if (response.StartsWith("-ERR"))
-                    return null;
-                int emails = int.Parse(Regex.Match(response, @"\d+").Value);
-                List<Email> list = new List<Email>();
-                //for (int i = 1; i <= emails; i++)
-                for (int i = 265; i <= emails; i++)
-                {
-                    socket.Send(Encoding.UTF8.GetBytes("RETR " + i + "\r\n"));
-                    Email email = new Email { Text = GetMultiLineResponse(socket), Nr = i };
-                    email.Sender = Regex.Match(email.Text, "^Sender:.*", RegexOptions.Multiline).Value;
-                    list.Add(email);
-                }
-                list.Sort();
-                return list;
+                if(list.Count <= (currentPage - 1) * 10)             
+                    for(int i = emailCount - (currentPage - 1) * 10; i > emailCount - currentPage * 10; i--)
+                    {
+                        socket.Send(Encoding.UTF8.GetBytes("TOP " + i + " 0\r\n"));
+                        Email email = new Email { Nr = i };
+                        string s = Regex.Match(GetMultiLineResponse(socket), "^Sender:.*", RegexOptions.Multiline).Value;
+                        if(!s.Equals(String.Empty))
+                            s = s.Substring(s.IndexOf(":") + 1);
+                        email.Sender = s;
+                        list.Add(email);
+                    }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.StackTrace);
-                return null;
             }
         }
 
         private void SetEmailTable(List<Email> list)
         {
-            list.ForEach(email => emailView.Rows.Add(null, email.Sender));
+            emailView.Rows.Clear();
+            emailView.Refresh();
+            for (int i = (currentPage - 1) * 10 ; i < currentPage * 10 && i < emailList.Count(); i++)
+            {
+                emailView.Rows.Add(false, emailList[i].Sender);
+            }
         }
 
         private string GetMultiLineResponse(Socket socket)
@@ -140,24 +160,40 @@ namespace POP3WinForms
             return Encoding.UTF8.GetString(bytes, 0, buffSize);
         }
 
-        private static void PrintNumberOfReceivedBytes(Socket socket)
+        private void ExitButton_Click(object sender, EventArgs e)
         {
-            byte[] bytes = new byte[512];
-            int buffSize, totalReceived = 0;
-            string result = String.Empty;
-            buffSize = socket.Receive(bytes);
-            totalReceived += buffSize;
-            int bytesToReceive = int.Parse(Regex.Match(Encoding.UTF8.GetString(bytes, 0, buffSize), @"\d+").Value);
-            Console.Write(Encoding.UTF8.GetString(bytes, 0, buffSize));
-
-            while (totalReceived < bytesToReceive)
-            {
-                buffSize = socket.Receive(bytes);
-                totalReceived += buffSize;
-                Console.Write(Encoding.UTF8.GetString(bytes, 0, buffSize));
-            }
-            Console.WriteLine("\nGauta baitu :" + totalReceived);
+            socket.Send(Encoding.UTF8.GetBytes("QUIT\r\n"));
+            if (GetResponse(socket).StartsWith("+OK"))
+                this.Close();          
         }
 
+        private void previousButton_Click(object sender, EventArgs e)
+        {
+            if (currentPage > 1)
+            {
+                currentPage--;
+                GetEmailList(socket, emailList);
+                SetEmailTable(emailList);
+            }
+        }
+
+        private void nextButton_Click(object sender, EventArgs e)
+        {
+                currentPage++;
+                GetEmailList(socket, emailList);
+                SetEmailTable(emailList);
+        }
+
+        private void deleteButton_Click(object sender, EventArgs e)
+        {
+            for(int i = 0; i < 10; i++)
+            {
+                if ((bool)emailView.Rows[i].Cells[0].Value)
+                {
+                    socket.Send(Encoding.UTF8.GetBytes("DELE " + (emailCount - i - (currentPage - 1) * 10)+ "\r\n"));
+                    string s = GetResponse(socket);
+                }
+            }
+        }
     }
 }
